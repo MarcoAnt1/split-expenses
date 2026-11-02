@@ -10,6 +10,18 @@
     <main>
         <h1>Split Expenses</h1>
         <p id="status-message">Javascript is not connected yet.</p>
+
+        <form id="person-form">
+            <label for="person-name">Name</label>
+            <div class="form-row">
+                <input type="text" id="person-name" maxlength="20" autocomplete="off">
+                <button type="submit">Add</button>
+            </div>
+
+            <p id="person-error" class="error" role="alert"></p>
+            <ul id="people-list" class="people-list"></ul>
+        </form>
+
     </main>
 
     <script src="app.js"></script>
