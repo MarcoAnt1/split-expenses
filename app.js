@@ -5,10 +5,29 @@ let people = [];
 let expenses = [];
 let nextExpenseId = 1;
 
+let isViewOnly = false;
+
+const SHARE_PREFIX = "#data=";
+const SHARE_VERSION = 1;
+
 const moneyFormatter = new Intl.NumberFormat("en-CA", {
     style: "currency",
     currency: "CAD",
 });
+
+const IMAGE_WIDTH = 600;
+const IMAGE_PADDING = 24;
+const IMAGE_SCALE = 2;
+const IMAGE_FONT = "Arial, Helvetica, sans-serif";
+
+const IMAGE_STYLES = {
+    title: { font: `bold 28px ${IMAGE_FONT}`, color: "#0f766e", lineHeight: 36, gapBefore: 0 },
+    heading: { font: `bold 20px ${IMAGE_FONT}`, color: "#1f2933", lineHeight: 28, gapBefore: 20 },
+    subheading: { font: `bold 16px ${IMAGE_FONT}`, color: "#1f2933", lineHeight: 22, gapBefore: 14 },
+    body: { font: `16px ${IMAGE_FONT}`, color: "#1f2933", lineHeight: 22, gapBefore: 2 },
+    total: { font: `bold 16px ${IMAGE_FONT}`, color: "#0f766e", lineHeight: 22, gapBefore: 4 },
+    muted: { font: `14px ${IMAGE_FONT}`, color: "#52606d", lineHeight: 20, gapBefore: 2 },
+};
 
 const personForm = document.querySelector("#person-form");
 const personNameInput = document.querySelector("#person-name");
@@ -27,8 +46,27 @@ const expenseList = document.querySelector("#expense-list");
 const debtsHint = document.querySelector("#debts-hint");
 const debtGroups = document.querySelector("#debt-groups");
 
+const saveImageButton = document.querySelector("#save-image-button");
+
+const copyLinkButton = document.querySelector("#copy-link-button");
+const shareLinkStatus = document.querySelector("#share-link-status");
+const shareLinkOutput = document.querySelector("#share-link-output");
+const shareBanner = document.querySelector("#share-banner");
+
 function formatMoney(cents) {
     return moneyFormatter.format(cents / 100);
+}
+
+function getExpenseTitleText(expense) {
+    return `${expense.description}: ${formatMoney(expense.amountCents)}`;
+}
+
+function getExpenseDetailsText(expense) {
+    return `Paid by ${expense.paidBy}. Shared by ${expense.sharedBy.join(", ")}.`;
+}
+
+function getDebtText(debt) {
+    return `${debt.from} owes ${debt.to} ${formatMoney(debt.amountCents)}, for ${debt.description}`;
 }
 
 function getPersonError(name) {
@@ -70,6 +108,8 @@ function removePerson(nameToRemove) {
 }
 
 function renderPeople() {
+    clearShareLink();
+
     peopleList.textContent = "";
 
     for (const person of people) {
@@ -147,6 +187,7 @@ function removeExpense(idToRemove) {
     expenses = expenses.filter((expense) => expense.id !== idToRemove);
     personError.textContent = "";
     renderExpenses();
+    renderDebts();
 }
 
 function renderExpenses() {
@@ -158,11 +199,11 @@ function renderExpenses() {
 
         const title = document.createElement("div");
         title.className = "expense-title";
-        title.textContent = `${expense.description}: ${formatMoney(expense.amountCents)}`;
+        title.textContent = getExpenseTitleText(expense);
 
         const details = document.createElement("div");
         details.className = "expense-details";
-        details.textContent = `Paid by ${expense.paidBy}. Shared by ${expense.sharedBy.join(", ")}.`;
+        details.textContent = getExpenseDetailsText(expense);
 
         const removeButton = document.createElement("button");
         removeButton.type = "button";
@@ -265,9 +306,13 @@ function getTotalText(group) {
 }
 
 function renderDebts() {
+    clearShareLink();
+
     const groups = groupDebtsByPair(calculateDebts());
 
     debtsHint.hidden = expenses.length > 0;
+    saveImageButton.hidden = expenses.length === 0;
+    copyLinkButton.hidden = expenses.length === 0;
     debtGroups.textContent = "";
 
     for (const group of groups) {
@@ -281,7 +326,7 @@ function renderDebts() {
         for (const debt of group.debts) {
             const line = document.createElement("p");
             line.className = "debt-line";
-            line.textContent = `${debt.from} owes ${debt.to} ${formatMoney(debt.amountCents)}, for ${debt.description}`;
+            line.textContent = getDebtText(debt);
             groupElement.append(line);
         }
 
@@ -293,6 +338,101 @@ function renderDebts() {
         debtGroups.append(groupElement);
     }
 }
+
+function getImageLines() {
+    const lines = [
+        { text: "Split Expenses", style: "title" },
+        { text: `Created on ${new Date().toLocaleDateString("en-CA")}`, style: "muted" },
+        { text: "Who owes whom", style: "heading" },
+    ];
+
+    for (const group of groupDebtsByPair(calculateDebts())) {
+        lines.push({ text: `${group.personA} and ${group.personB}`, style: "subheading" });
+
+        for (const debt of group.debts) {
+            lines.push({ text: getDebtText(debt), style: "body" });
+        }
+
+        lines.push({ text: getTotalText(group), style: "total" });
+    }
+
+    lines.push({ text: "Expenses", style: "heading" });
+
+    for (const expense of expenses) {
+        lines.push({ text: getExpenseTitleText(expense), style: "subheading" });
+        lines.push({ text: getExpenseDetailsText(expense), style: "muted" });
+    }
+
+    return lines;
+}
+
+function wrapText(context, text, maxWidth) {
+    const words = text.split(" ");
+    const wrappedLines = [];
+    let currentLine = "";
+
+    for (const word of words) {
+        const testLine = currentLine === "" ? word : `${currentLine} ${word}`;
+
+        if (context.measureText(testLine).width > maxWidth && currentLine !== "") {
+            wrappedLines.push(currentLine);
+            currentLine = word;
+        } else {
+            currentLine = testLine;
+        }
+    }
+
+    wrappedLines.push(currentLine);
+    return wrappedLines;
+}
+
+function createSummaryCanvas() {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    const maxWidth = IMAGE_WIDTH - IMAGE_PADDING * 2;
+
+    const rows = [];
+    let height = IMAGE_PADDING;
+
+    for (const line of getImageLines()) {
+        const style = IMAGE_STYLES[line.style];
+
+        context.font = style.font;
+        height += style.gapBefore;
+
+        for (const text of wrapText(context, line.text, maxWidth)) {
+            rows.push({ text, style, y: height });
+            height += style.lineHeight;
+        }
+    }
+
+    height += IMAGE_PADDING;
+
+    canvas.width = IMAGE_WIDTH * IMAGE_SCALE;
+    canvas.height = height * IMAGE_SCALE;
+    context.scale(IMAGE_SCALE, IMAGE_SCALE);
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, IMAGE_WIDTH, height);
+    context.textBaseline = "top";
+
+    for (const row of rows) {
+        context.font = row.style.font;
+        context.fillStyle = row.style.color;
+        context.fillText(row.text, IMAGE_PADDING, row.y);
+    }
+
+    return canvas;
+}
+
+function saveSummaryImage() {
+    const link = document.createElement("a");
+    link.href = createSummaryCanvas().toDataURL("image/png");
+    link.download = "split-expenses.png";
+    link.click();
+}
+
+saveImageButton.addEventListener("click", saveSummaryImage);
 
 personForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -346,3 +486,148 @@ expenseForm.addEventListener("submit", (event) => {
     renderExpenses();
     renderDebts();
 });
+
+window.addEventListener("beforeunload", (event) => {
+    if (isViewOnly || people.length === 0) {
+        return;
+    }
+
+    event.preventDefault();
+    event.returnValue = "";
+}); 
+
+function clearShareLink() {
+    shareLinkOutput.hidden = true;
+    shareLinkOutput.value = "";
+    shareLinkStatus.textContent = "";
+}
+
+function serializeData() {
+    return JSON.stringify({
+        v: SHARE_VERSION,
+        p: people,
+        e: expenses.map((expense) => [
+            expense.description,
+            expense.amountCents,
+            people.indexOf(expense.paidBy),
+            expense.sharedBy.map((person) => people.indexOf(person)),
+        ]),
+    });
+}
+
+function parseSharedData(json) {
+    const data = JSON.parse(json);
+
+    const hasValidPeople =
+        Array.isArray(data.p) &&
+        data.p.length >= MIN_PEOPLE &&
+        data.p.length <= MAX_PEOPLE &&
+        data.p.every((person) => typeof person === "string" && person !== "") &&
+        new Set(data.p).size === data.p.length;
+
+    if (data.v !== SHARE_VERSION || !hasValidPeople || !Array.isArray(data.e)) {
+        throw new Error("Invalid shared data");
+    }
+
+    const sharedExpenses = data.e.map((entry, index) => {
+        const [description, amountCents, paidByIndex, sharedByIndexes] = entry;
+        const paidBy = data.p[paidByIndex];
+        const sharedBy = sharedByIndexes.map((personIndex) => data.p[personIndex]);
+
+        const isValid =
+            typeof description === "string" &&
+            Number.isInteger(amountCents) &&
+            typeof paidBy === "string" &&
+            sharedBy.every((person) => typeof person === "string") &&
+            getExpenseError(description, amountCents, paidBy, sharedBy) === "";
+
+        if (!isValid) {
+            throw new Error("Invalid shared expense");
+        }
+
+        return { id: index + 1, description, amountCents, paidBy, sharedBy };
+    });
+
+    return { sharedPeople: data.p, sharedExpenses };
+}
+
+async function encodeData(text) {
+    const stream = new Blob([text])
+        .stream()
+        .pipeThrough(new CompressionStream("deflate-raw"));
+    const buffer = await new Response(stream).arrayBuffer();
+
+    let binary = "";
+
+    for (const byte of new Uint8Array(buffer)) {
+        binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary)
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replaceAll("=", "");
+}
+
+async function decodeData(encoded) {
+    const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const stream = new Blob([bytes])
+        .stream()
+        .pipeThrough(new DecompressionStream("deflate-raw"));
+
+    return new Response(stream).text();
+}
+
+async function tryCopyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function copyShareLink() {
+    try {
+        const encoded = await encodeData(serializeData());
+        const link = `${location.href.split("#")[0]}${SHARE_PREFIX}${encoded}`;
+        const wasCopied = await tryCopyText(link);
+
+        shareLinkOutput.value = link;
+        shareLinkOutput.hidden = false;
+        shareLinkStatus.textContent = wasCopied
+            ? "Link copied!"
+            : "Your browser blocked copying, so copy the link below.";
+    } catch {
+        shareLinkStatus.textContent = "This browser can't create the link. Try saving an image instead.";
+    }
+}
+
+async function loadSharedLink() {
+    if (!location.hash.startsWith(SHARE_PREFIX)) {
+        return;
+    }
+
+    document.body.classList.add("view-only");
+
+    try {
+        const encoded = location.hash.slice(SHARE_PREFIX.length);
+        const { sharedPeople, sharedExpenses } = parseSharedData(await decodeData(encoded));
+
+        people = sharedPeople;
+        expenses = sharedExpenses;
+        isViewOnly = true;
+        shareBanner.textContent = "This is a view-only summary. Ask for a new link if anything changes.";
+        renderExpenses();
+        renderDebts();
+    } catch {
+        document.body.classList.remove("view-only");
+        shareBanner.textContent = "This link is broken or incomplete. Ask for a new one.";
+    }
+}
+
+copyLinkButton.addEventListener("click", copyShareLink);
+window.addEventListener("hashchange", () => location.reload());
+
+loadSharedLink();

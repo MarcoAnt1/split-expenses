@@ -9,9 +9,9 @@
 <body>
     <main>
         <h1>Split Expenses</h1>
-        <p id="status-message">Javascript is not connected yet.</p>
+        <p id="share-banner" class="share-banner" role="status"></p>
 
-        <section class="card">
+        <section class="card edit-only">
             <h2>People</h2>
             <p class="hint">Add 2 to 6 people.</p>
 
@@ -29,9 +29,9 @@
 
         <section class="card">
             <h2>Expenses</h2>
-            <p id="expense-hint" class="hint">Add at least 2 people to start.</p>
+            <p id="expense-hint" class="hint edit-only">Add at least 2 people to start.</p>
 
-            <form id="expense-form" novalidate hidden>
+            <form id="expense-form" class="edit-only" novalidate hidden>
                 <div class="field">
                     <label for="expense-description">What was it for?</label>
                     <input type="text" id="expense-description" maxlength="40" autocomplete="off">
@@ -63,6 +63,12 @@
             <h2>Who owes whom</h2>
             <p id="debts-hint" class="hint">Add an expense to see the debts.</p>
             <div id="debt-groups"></div>
+            <div class="share-actions">
+                <button type="button" id="save-image-button" hidden>Save as image</button>
+                <button type="button" id="copy-link-button" class="edit-only" hidden>Copy link</button>
+            </div>
+            <p id="share-link-status" class="hint share-link-status" role="status"></p>
+            <input type="text" id="share-link-output" class="share-link-output" aria-label="Share link" readonly hidden>
         </section>
 
     </main>
