@@ -5,6 +5,11 @@ let people = [];
 let expenses = [];
 let nextExpenseId = 1;
 
+let isViewOnly = false;
+
+const SHARE_PREFIX = "#data=";
+const SHARE_VERSION = 1;
+
 const moneyFormatter = new Intl.NumberFormat("en-CA", {
     style: "currency",
     currency: "CAD",
@@ -40,7 +45,13 @@ const expenseList = document.querySelector("#expense-list");
 
 const debtsHint = document.querySelector("#debts-hint");
 const debtGroups = document.querySelector("#debt-groups");
+
 const saveImageButton = document.querySelector("#save-image-button");
+
+const copyLinkButton = document.querySelector("#copy-link-button");
+const shareLinkStatus = document.querySelector("#share-link-status");
+const shareLinkOutput = document.querySelector("#share-link-output");
+const shareBanner = document.querySelector("#share-banner");
 
 function formatMoney(cents) {
     return moneyFormatter.format(cents / 100);
@@ -97,6 +108,8 @@ function removePerson(nameToRemove) {
 }
 
 function renderPeople() {
+    clearShareLink();
+
     peopleList.textContent = "";
 
     for (const person of people) {
@@ -293,10 +306,13 @@ function getTotalText(group) {
 }
 
 function renderDebts() {
+    clearShareLink();
+
     const groups = groupDebtsByPair(calculateDebts());
 
     debtsHint.hidden = expenses.length > 0;
     saveImageButton.hidden = expenses.length === 0;
+    copyLinkButton.hidden = expenses.length === 0;
     debtGroups.textContent = "";
 
     for (const group of groups) {
@@ -472,10 +488,146 @@ expenseForm.addEventListener("submit", (event) => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-    if (people.length === 0) {
+    if (isViewOnly || people.length === 0) {
         return;
     }
 
     event.preventDefault();
     event.returnValue = "";
 }); 
+
+function clearShareLink() {
+    shareLinkOutput.hidden = true;
+    shareLinkOutput.value = "";
+    shareLinkStatus.textContent = "";
+}
+
+function serializeData() {
+    return JSON.stringify({
+        v: SHARE_VERSION,
+        p: people,
+        e: expenses.map((expense) => [
+            expense.description,
+            expense.amountCents,
+            people.indexOf(expense.paidBy),
+            expense.sharedBy.map((person) => people.indexOf(person)),
+        ]),
+    });
+}
+
+function parseSharedData(json) {
+    const data = JSON.parse(json);
+
+    const hasValidPeople =
+        Array.isArray(data.p) &&
+        data.p.length >= MIN_PEOPLE &&
+        data.p.length <= MAX_PEOPLE &&
+        data.p.every((person) => typeof person === "string" && person !== "") &&
+        new Set(data.p).size === data.p.length;
+
+    if (data.v !== SHARE_VERSION || !hasValidPeople || !Array.isArray(data.e)) {
+        throw new Error("Invalid shared data");
+    }
+
+    const sharedExpenses = data.e.map((entry, index) => {
+        const [description, amountCents, paidByIndex, sharedByIndexes] = entry;
+        const paidBy = data.p[paidByIndex];
+        const sharedBy = sharedByIndexes.map((personIndex) => data.p[personIndex]);
+
+        const isValid =
+            typeof description === "string" &&
+            Number.isInteger(amountCents) &&
+            typeof paidBy === "string" &&
+            sharedBy.every((person) => typeof person === "string") &&
+            getExpenseError(description, amountCents, paidBy, sharedBy) === "";
+
+        if (!isValid) {
+            throw new Error("Invalid shared expense");
+        }
+
+        return { id: index + 1, description, amountCents, paidBy, sharedBy };
+    });
+
+    return { sharedPeople: data.p, sharedExpenses };
+}
+
+async function encodeData(text) {
+    const stream = new Blob([text])
+        .stream()
+        .pipeThrough(new CompressionStream("deflate-raw"));
+    const buffer = await new Response(stream).arrayBuffer();
+
+    let binary = "";
+
+    for (const byte of new Uint8Array(buffer)) {
+        binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary)
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replaceAll("=", "");
+}
+
+async function decodeData(encoded) {
+    const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const stream = new Blob([bytes])
+        .stream()
+        .pipeThrough(new DecompressionStream("deflate-raw"));
+
+    return new Response(stream).text();
+}
+
+async function tryCopyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function copyShareLink() {
+    try {
+        const encoded = await encodeData(serializeData());
+        const link = `${location.href.split("#")[0]}${SHARE_PREFIX}${encoded}`;
+        const wasCopied = await tryCopyText(link);
+
+        shareLinkOutput.value = link;
+        shareLinkOutput.hidden = false;
+        shareLinkStatus.textContent = wasCopied
+            ? "Link copied!"
+            : "Your browser blocked copying, so copy the link below.";
+    } catch {
+        shareLinkStatus.textContent = "This browser can't create the link. Try saving an image instead.";
+    }
+}
+
+async function loadSharedLink() {
+    if (!location.hash.startsWith(SHARE_PREFIX)) {
+        return;
+    }
+
+    document.body.classList.add("view-only");
+
+    try {
+        const encoded = location.hash.slice(SHARE_PREFIX.length);
+        const { sharedPeople, sharedExpenses } = parseSharedData(await decodeData(encoded));
+
+        people = sharedPeople;
+        expenses = sharedExpenses;
+        isViewOnly = true;
+        shareBanner.textContent = "This is a view-only summary. Ask for a new link if anything changes.";
+        renderExpenses();
+        renderDebts();
+    } catch {
+        document.body.classList.remove("view-only");
+        shareBanner.textContent = "This link is broken or incomplete. Ask for a new one.";
+    }
+}
+
+copyLinkButton.addEventListener("click", copyShareLink);
+window.addEventListener("hashchange", () => location.reload());
+
+loadSharedLink();

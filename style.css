@@ -164,5 +164,33 @@ legend {
 }
 
 .share-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 16px;
+}
+
+.share-link-status:empty {
+    display: none;
+}
+
+.share-link-output {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.share-banner {
+    padding: 12px;
+    background-color: #e6f4f1;
+    border-left: 4px solid #0f766e;
+    border-radius: 4px;
+}
+
+.share-banner:empty {
+    display: none;
+}
+
+.view-only .edit-only,
+.view-only .remove-button {
+    display: none;
 }
