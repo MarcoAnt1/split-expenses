@@ -10,6 +10,20 @@ const moneyFormatter = new Intl.NumberFormat("en-CA", {
     currency: "CAD",
 });
 
+const IMAGE_WIDTH = 600;
+const IMAGE_PADDING = 24;
+const IMAGE_SCALE = 2;
+const IMAGE_FONT = "Arial, Helvetica, sans-serif";
+
+const IMAGE_STYLES = {
+    title: { font: `bold 28px ${IMAGE_FONT}`, color: "#0f766e", lineHeight: 36, gapBefore: 0 },
+    heading: { font: `bold 20px ${IMAGE_FONT}`, color: "#1f2933", lineHeight: 28, gapBefore: 20 },
+    subheading: { font: `bold 16px ${IMAGE_FONT}`, color: "#1f2933", lineHeight: 22, gapBefore: 14 },
+    body: { font: `16px ${IMAGE_FONT}`, color: "#1f2933", lineHeight: 22, gapBefore: 2 },
+    total: { font: `bold 16px ${IMAGE_FONT}`, color: "#0f766e", lineHeight: 22, gapBefore: 4 },
+    muted: { font: `14px ${IMAGE_FONT}`, color: "#52606d", lineHeight: 20, gapBefore: 2 },
+};
+
 const personForm = document.querySelector("#person-form");
 const personNameInput = document.querySelector("#person-name");
 const personError = document.querySelector("#person-error");
@@ -26,9 +40,22 @@ const expenseList = document.querySelector("#expense-list");
 
 const debtsHint = document.querySelector("#debts-hint");
 const debtGroups = document.querySelector("#debt-groups");
+const saveImageButton = document.querySelector("#save-image-button");
 
 function formatMoney(cents) {
     return moneyFormatter.format(cents / 100);
+}
+
+function getExpenseTitleText(expense) {
+    return `${expense.description}: ${formatMoney(expense.amountCents)}`;
+}
+
+function getExpenseDetailsText(expense) {
+    return `Paid by ${expense.paidBy}. Shared by ${expense.sharedBy.join(", ")}.`;
+}
+
+function getDebtText(debt) {
+    return `${debt.from} owes ${debt.to} ${formatMoney(debt.amountCents)}, for ${debt.description}`;
 }
 
 function getPersonError(name) {
@@ -159,11 +186,11 @@ function renderExpenses() {
 
         const title = document.createElement("div");
         title.className = "expense-title";
-        title.textContent = `${expense.description}: ${formatMoney(expense.amountCents)}`;
+        title.textContent = getExpenseTitleText(expense);
 
         const details = document.createElement("div");
         details.className = "expense-details";
-        details.textContent = `Paid by ${expense.paidBy}. Shared by ${expense.sharedBy.join(", ")}.`;
+        details.textContent = getExpenseDetailsText(expense);
 
         const removeButton = document.createElement("button");
         removeButton.type = "button";
@@ -269,6 +296,7 @@ function renderDebts() {
     const groups = groupDebtsByPair(calculateDebts());
 
     debtsHint.hidden = expenses.length > 0;
+    saveImageButton.hidden = expenses.length === 0;
     debtGroups.textContent = "";
 
     for (const group of groups) {
@@ -282,7 +310,7 @@ function renderDebts() {
         for (const debt of group.debts) {
             const line = document.createElement("p");
             line.className = "debt-line";
-            line.textContent = `${debt.from} owes ${debt.to} ${formatMoney(debt.amountCents)}, for ${debt.description}`;
+            line.textContent = getDebtText(debt);
             groupElement.append(line);
         }
 
@@ -294,6 +322,101 @@ function renderDebts() {
         debtGroups.append(groupElement);
     }
 }
+
+function getImageLines() {
+    const lines = [
+        { text: "Split Expenses", style: "title" },
+        { text: `Created on ${new Date().toLocaleDateString("en-CA")}`, style: "muted" },
+        { text: "Who owes whom", style: "heading" },
+    ];
+
+    for (const group of groupDebtsByPair(calculateDebts())) {
+        lines.push({ text: `${group.personA} and ${group.personB}`, style: "subheading" });
+
+        for (const debt of group.debts) {
+            lines.push({ text: getDebtText(debt), style: "body" });
+        }
+
+        lines.push({ text: getTotalText(group), style: "total" });
+    }
+
+    lines.push({ text: "Expenses", style: "heading" });
+
+    for (const expense of expenses) {
+        lines.push({ text: getExpenseTitleText(expense), style: "subheading" });
+        lines.push({ text: getExpenseDetailsText(expense), style: "muted" });
+    }
+
+    return lines;
+}
+
+function wrapText(context, text, maxWidth) {
+    const words = text.split(" ");
+    const wrappedLines = [];
+    let currentLine = "";
+
+    for (const word of words) {
+        const testLine = currentLine === "" ? word : `${currentLine} ${word}`;
+
+        if (context.measureText(testLine).width > maxWidth && currentLine !== "") {
+            wrappedLines.push(currentLine);
+            currentLine = word;
+        } else {
+            currentLine = testLine;
+        }
+    }
+
+    wrappedLines.push(currentLine);
+    return wrappedLines;
+}
+
+function createSummaryCanvas() {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    const maxWidth = IMAGE_WIDTH - IMAGE_PADDING * 2;
+
+    const rows = [];
+    let height = IMAGE_PADDING;
+
+    for (const line of getImageLines()) {
+        const style = IMAGE_STYLES[line.style];
+
+        context.font = style.font;
+        height += style.gapBefore;
+
+        for (const text of wrapText(context, line.text, maxWidth)) {
+            rows.push({ text, style, y: height });
+            height += style.lineHeight;
+        }
+    }
+
+    height += IMAGE_PADDING;
+
+    canvas.width = IMAGE_WIDTH * IMAGE_SCALE;
+    canvas.height = height * IMAGE_SCALE;
+    context.scale(IMAGE_SCALE, IMAGE_SCALE);
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, IMAGE_WIDTH, height);
+    context.textBaseline = "top";
+
+    for (const row of rows) {
+        context.font = row.style.font;
+        context.fillStyle = row.style.color;
+        context.fillText(row.text, IMAGE_PADDING, row.y);
+    }
+
+    return canvas;
+}
+
+function saveSummaryImage() {
+    const link = document.createElement("a");
+    link.href = createSummaryCanvas().toDataURL("image/png");
+    link.download = "split-expenses.png";
+    link.click();
+}
+
+saveImageButton.addEventListener("click", saveSummaryImage);
 
 personForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -355,4 +478,4 @@ window.addEventListener("beforeunload", (event) => {
 
     event.preventDefault();
     event.returnValue = "";
-});
+}); 

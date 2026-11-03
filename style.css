@@ -162,3 +162,7 @@ legend {
     color: #0f766e;
     font-weight: bold;
 }
+
+.share-actions {
+    margin-top: 16px;
+}
