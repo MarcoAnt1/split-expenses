@@ -147,6 +147,7 @@ function removeExpense(idToRemove) {
     expenses = expenses.filter((expense) => expense.id !== idToRemove);
     personError.textContent = "";
     renderExpenses();
+    renderDebts();
 }
 
 function renderExpenses() {
@@ -345,4 +346,13 @@ expenseForm.addEventListener("submit", (event) => {
     renderExpenseForm();
     renderExpenses();
     renderDebts();
+});
+
+window.addEventListener("beforeunload", (event) => {
+    if (people.length === 0) {
+        return;
+    }
+
+    event.preventDefault();
+    event.returnValue = "";
 });
