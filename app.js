@@ -75,7 +75,7 @@ function getPersonError(name) {
     }
 
     if (people.length >= MAX_PEOPLE) {
-        return `You can add up to ${MAX_PEOPLE} people.`;
+        return `You can add up to ${MAX_PEOPLE} participants.`;
     }
 
     const alreadyExists = people.some(
@@ -138,7 +138,7 @@ function renderExpenseForm() {
     expenseError.textContent = "";
 
     expensePaidBySelect.textContent = "";
-    expensePaidBySelect.append(new Option("Choose a person", ""));
+    expensePaidBySelect.append(new Option("Choose a participant", ""));
 
     expenseSharedBy.textContent = "";
 
@@ -177,7 +177,7 @@ function getExpenseError(description, amountCents, paidBy, sharedBy) {
     }
 
     if (sharedBy.length === 1 && sharedBy[0] === paidBy) {
-        return "Choose at least one person besides the one who paid.";
+        return "Choose at least one participant besides the one who paid.";
     }
 
     return "";
